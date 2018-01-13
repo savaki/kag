@@ -68,3 +68,30 @@ func removeEmpty(in []franz.OffsetFetchResponseV3Response) (responses []franz.Of
 	}
 	return
 }
+
+func observeLag(observer Observer, topicOffsets topicOffsets, groupOffsets groupOffsets) {
+	for groupID, topics := range groupOffsets {
+		for topic, partitions := range topics {
+			offsetsByPartition, ok := topicOffsets[topic]
+			if !ok {
+				continue
+			}
+
+			for partition, offset := range partitions {
+				v, ok := offsetsByPartition[partition]
+				if !ok {
+					continue
+				}
+				if v == -1 {
+					continue
+				}
+
+				lag := v - offset
+				if lag < 0 {
+					lag = 0
+				}
+				observer.Observe(groupID, topic, partition, lag)
+			}
+		}
+	}
+}

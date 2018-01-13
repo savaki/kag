@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"os"
@@ -18,10 +20,16 @@ var (
 		Brokers  string
 		Observer string
 		Interval time.Duration
+		Debug    bool
 		Datadog  struct {
 			Addr      string
 			Namespace string
 			Tags      string
+		}
+		TLS struct {
+			Cert string
+			Key  string
+			CA   string
 		}
 	}{}
 )
@@ -70,6 +78,29 @@ func main() {
 			EnvVar:      "KAG_DATADOG_TAGS",
 			Destination: &opts.Datadog.Tags,
 		},
+		cli.StringFlag{
+			Name:        "tls-cert",
+			Usage:       "tls certificate",
+			EnvVar:      "KAG_TLS_CERT",
+			Destination: &opts.TLS.Cert,
+		},
+		cli.StringFlag{
+			Name:        "tls-key",
+			Usage:       "tls private key",
+			EnvVar:      "KAG_TLS_KEY",
+			Destination: &opts.TLS.Key,
+		},
+		cli.StringFlag{
+			Name:        "tls-ca",
+			Usage:       "tls ca certificate",
+			EnvVar:      "KAG_TLS_CA",
+			Destination: &opts.TLS.CA,
+		},
+		cli.BoolFlag{
+			Name:        "debug",
+			Usage:       "display additional debugging info",
+			Destination: &opts.Debug,
+		},
 	}
 	app.Run(os.Args)
 }
@@ -99,14 +130,44 @@ func newObserver() (kag.Observer, error) {
 	return observer, nil
 }
 
+func lookupTlsConfig() (*tls.Config, error) {
+	if opts.TLS.Cert == "" || opts.TLS.Key == "" || opts.TLS.CA == "" {
+		return nil, nil
+	}
+
+	cert, err := tls.X509KeyPair([]byte(opts.TLS.Cert), []byte(opts.TLS.Key))
+	if err != nil {
+		return nil, fmt.Errorf("unable to read x509 key pair: %v", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM([]byte(opts.TLS.CA))
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: true,
+	}, nil
+}
+
 func run(_ *cli.Context) error {
 	observer, err := newObserver()
 	check(err)
+
+	tlsConfig, err := lookupTlsConfig()
+	check(err)
+
+	var w io.Writer
+	if opts.Debug {
+		w = os.Stdout
+	}
 
 	monitor := kag.New(kag.Config{
 		Brokers:  strings.Split(opts.Brokers, ","),
 		Observer: observer,
 		Interval: opts.Interval,
+		TLS:      tlsConfig,
+		Debug:    w,
 	})
 	defer monitor.Close()
 

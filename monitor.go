@@ -2,10 +2,13 @@ package kag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -39,9 +42,21 @@ type Monitor struct {
 	groupOffsets chan groupOffsets
 }
 
+func (m *Monitor) debug(format string, args ...interface{}) {
+	if m.config.Debug == nil {
+		return
+	}
+
+	fmt.Fprintf(m.config.Debug, format, args...)
+	if !strings.HasSuffix(format, "\n") {
+		io.WriteString(m.config.Debug, "\n")
+	}
+}
+
 func (m *Monitor) connectAny(ctx context.Context) (*franz.Conn, error) {
 	for _, broker := range m.config.Brokers {
 		if conn, err := m.dialer.DialContext(ctx, "tcp", broker); err == nil {
+			m.debug("connected to broker, %v", broker)
 			return conn, nil
 		}
 	}
@@ -62,7 +77,7 @@ func (m *Monitor) monitor(ctx context.Context) error {
 
 	metadata, err := conn.MetadataV0(franz.MetadataRequestV0{})
 	if err != nil {
-		return errors.Wrapf(err, "unable to retrieve metadata")
+		return errors.Wrapf(err, "unable to retrieve initial metadata")
 	}
 
 	brokers := brokerArray{}
@@ -70,11 +85,12 @@ func (m *Monitor) monitor(ctx context.Context) error {
 
 	for _, broker := range metadata.Brokers {
 		addr := fmt.Sprintf("%v:%v", broker.Host, broker.Port)
+		m.debug("starting monitoring for broker, %v", addr)
 		conn, err := m.dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return errors.Wrapf(err, "unable to connect to broker, %v", addr)
 		}
-		brokers = append(brokers, newBroker(broker.NodeID, conn))
+		brokers = append(brokers, newBroker(broker.NodeID, conn, m.config.Debug))
 	}
 
 	brokerList := metadata.Brokers
@@ -84,6 +100,7 @@ func (m *Monitor) monitor(ctx context.Context) error {
 	defer ticker.Stop()
 
 	for {
+		m.debug("retrieving metadata")
 		metadata, err := conn.MetadataV0(franz.MetadataRequestV0{})
 		if err != nil {
 			return errors.Wrapf(err, "unable to retrieve metadata")
@@ -95,37 +112,26 @@ func (m *Monitor) monitor(ctx context.Context) error {
 			return errors.Errorf("detected change in broker list")
 		}
 
+		m.debug("fetching consumer group offsets")
 		groupOffsets, err := brokers.fetchGroupOffsets(ctx, metadata)
 		if err != nil {
 			return err
 		}
 
+		m.debug("fetching topic offsets")
 		topicOffsets, err := brokers.fetchTopicOffsets(ctx, metadata)
 		if err != nil {
 			return err
 		}
 
-		for groupID, topics := range groupOffsets {
-			for topic, partitions := range topics {
-				offsetsByPartition, ok := topicOffsets[topic]
-				if !ok {
-					continue
-				}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(groupOffsets)
+		encoder.Encode(topicOffsets)
 
-				for partition, offset := range partitions {
-					v, ok := offsetsByPartition[partition]
-					if !ok {
-						continue
-					}
-
-					lag := v - offset
-					if lag < 0 {
-						lag = 0
-					}
-					m.config.Observer.Observe(groupID, topic, partition, lag)
-				}
-			}
-		}
+		m.debug("publishing observations")
+		observeLag(m.config.Observer, topicOffsets, groupOffsets)
+		os.Exit(1)
 
 		select {
 		case <-ctx.Done():

@@ -14,12 +14,14 @@ type Observer struct {
 }
 
 func (o *Observer) Observe(groupID, topic string, partition int32, lag int64) {
-	name := "kafka." + groupID + "." + topic + "." + strconv.Itoa(int(partition)) + ".lag"
-	fmt.Println(name)
-	if err := o.client.Gauge(name, float64(lag), nil, 1); err != nil {
+	tags := []string{
+		"group:" + groupID,
+		"topic:" + topic,
+		"partition:" + strconv.Itoa(int(partition)),
+	}
+	if err := o.client.Gauge("kafka.consumer.lag", float64(lag), tags, 1); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	o.client.Flush()
 }
 
 func (o *Observer) Flush() error {

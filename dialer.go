@@ -3,6 +3,7 @@ package kag
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"net"
 	"time"
 )
@@ -80,4 +81,7 @@ type Config struct {
 	// TLS enables Config to open secure connections.  If nil, standard net.Conn
 	// will be used.
 	TLS *tls.Config
+
+	// Debug writer for optional debug messages
+	Debug io.Writer
 }

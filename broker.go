@@ -2,6 +2,9 @@ package kag
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/savaki/franz"
@@ -11,25 +14,33 @@ import (
 type broker struct {
 	nodeID int32
 	conn   *franz.Conn
+	w      io.Writer
+}
+
+func (b *broker) debug(layout string, args ...interface{}) {
+	if b.w == nil {
+		return
+	}
+
+	if !strings.HasSuffix(layout, "\n") {
+		layout += "\n"
+	}
+	fmt.Fprintf(b.w, layout, args...)
 }
 
 func (b *broker) fetchTopicOffsets(metadata *franz.MetadataResponseV0) (topicOffsets, error) {
 	input := makeListOffsetRequestV1(b.nodeID, metadata)
+
+	b.debug("fetching topic offsets for broker, %v", b.nodeID)
 	resp, err := b.conn.ListOffsetsV1(input)
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to list offsets for broker, %v", b.conn.RemoteAddr())
 	}
 
-	offsets := map[string]map[int32]int64{}
+	offsets := topicOffsets{}
 	for _, t := range resp.Responses {
-		offsetsByPartition, ok := offsets[t.Topic]
-		if !ok {
-			offsetsByPartition = map[int32]int64{}
-			offsets[t.Topic] = offsetsByPartition
-		}
-
 		for _, p := range t.PartitionResponses {
-			offsetsByPartition[p.Partition] = p.Offset
+			offsets.add(t.Topic, p.Partition, p.Offset)
 		}
 	}
 
@@ -44,6 +55,7 @@ func (b *broker) fetchGroupOffsets(topics []franz.OffsetFetchRequestV3Topic) (gr
 
 	offsets := groupOffsets{}
 
+	b.debug("fetching group offsets for broker, %v", b.nodeID)
 	for _, group := range resp.Groups {
 		offsetFetch, err := b.conn.OffsetFetchV3(franz.OffsetFetchRequestV3{
 			GroupID: group.GroupID,
@@ -67,10 +79,11 @@ func (b *broker) Close() error {
 	return b.conn.Close()
 }
 
-func newBroker(nodeID int32, conn *franz.Conn) *broker {
+func newBroker(nodeID int32, conn *franz.Conn, debug io.Writer) *broker {
 	return &broker{
 		nodeID: nodeID,
 		conn:   conn,
+		w:      debug,
 	}
 }
 
@@ -80,7 +93,8 @@ func (b brokerArray) fetchTopicOffsets(ctx context.Context, metadata *franz.Meta
 	results := make(chan topicOffsets, len(b))
 
 	group := &errgroup.Group{}
-	for _, broker := range b {
+	for _, item := range b {
+		broker := item
 		group.Go(func() error {
 			offsets, err := broker.fetchTopicOffsets(metadata)
 			if err == nil {
@@ -110,7 +124,8 @@ func (b brokerArray) fetchGroupOffsets(ctx context.Context, metadata *franz.Meta
 	topics := makeTopics(metadata.Topics)
 
 	group := &errgroup.Group{}
-	for _, broker := range b {
+	for _, item := range b {
+		broker := item
 		group.Go(func() error {
 			offsets, err := broker.fetchGroupOffsets(topics)
 			if err == nil {
