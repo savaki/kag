@@ -1,20 +1,8 @@
 package kag
 
 import (
-	"fmt"
-
 	"github.com/savaki/franz"
 )
-
-func findAddr(nodeID int32, metadata *franz.MetadataResponseV0) (string, bool) {
-	for _, broker := range metadata.Brokers {
-		if broker.NodeID == nodeID {
-			return fmt.Sprintf("%v:%v", broker.Host, broker.Port), true
-		}
-	}
-
-	return "", false
-}
 
 func makeTopics(in []*franz.MetadataResponseV0Topic) []franz.OffsetFetchRequestV3Topic {
 	var topics []franz.OffsetFetchRequestV3Topic

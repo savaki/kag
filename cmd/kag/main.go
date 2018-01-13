@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/savaki/franz/kag"
+	"github.com/savaki/kag"
 )
 
 func main() {
