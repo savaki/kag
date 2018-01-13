@@ -20,7 +20,7 @@ func makeTopics(in []*franz.MetadataResponseV0Topic) []franz.OffsetFetchRequestV
 	return topics
 }
 
-func makeListOffsetRequestV1(nodeID int32, metadata *franz.MetadataResponseV0) franz.ListOffsetRequestV1 {
+func makeListOffsetRequestV1(nodeID int32, metadata *franz.MetadataResponseV0, offset int64) franz.ListOffsetRequestV1 {
 	out := franz.ListOffsetRequestV1{}
 
 	for _, topic := range metadata.Topics {
@@ -39,7 +39,7 @@ func makeListOffsetRequestV1(nodeID int32, metadata *franz.MetadataResponseV0) f
 
 			item.Partitions = append(item.Partitions, franz.ListOffsetRequestV1Partition{
 				Partition: partition.PartitionID,
-				Time:      -1,
+				Time:      offset,
 			})
 		}
 
@@ -91,6 +91,21 @@ func observeLag(observer Observer, topicOffsets topicOffsets, groupOffsets group
 					lag = 0
 				}
 				observer.Observe(groupID, topic, partition, lag)
+			}
+		}
+	}
+}
+
+// removeZeroEntries removes topic partitions from the oldest where the
+// offset matches the topic-partitions from newest.  Indicates that all
+// records were truncated for size or time restrictions.
+func removeZeroEntries(oldest, newest topicOffsets) {
+	for topic, partitions := range oldest {
+		for partition, offset := range partitions {
+			if nTopic, ok := newest[topic]; ok {
+				if nOffset, ok := nTopic[partition]; ok && offset == nOffset {
+					delete(partitions, partition)
+				}
 			}
 		}
 	}

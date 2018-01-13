@@ -2,7 +2,6 @@ package kag
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -118,20 +117,23 @@ func (m *Monitor) monitor(ctx context.Context) error {
 			return err
 		}
 
-		m.debug("fetching topic offsets")
-		topicOffsets, err := brokers.fetchTopicOffsets(ctx, metadata)
+		m.debug("fetching newest topic offsets")
+		newest, err := brokers.fetchTopicOffsets(ctx, metadata, -1)
 		if err != nil {
 			return err
 		}
 
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		encoder.Encode(groupOffsets)
-		encoder.Encode(topicOffsets)
+		m.debug("fetching oldest topic offsets")
+		oldest, err := brokers.fetchTopicOffsets(ctx, metadata, -2)
+		if err != nil {
+			return err
+		}
+
+		m.debug("removing topic partitions with zero records")
+		removeZeroEntries(newest, oldest)
 
 		m.debug("publishing observations")
-		observeLag(m.config.Observer, topicOffsets, groupOffsets)
-		os.Exit(1)
+		observeLag(m.config.Observer, newest, groupOffsets)
 
 		select {
 		case <-ctx.Done():

@@ -28,8 +28,9 @@ func (b *broker) debug(layout string, args ...interface{}) {
 	fmt.Fprintf(b.w, layout, args...)
 }
 
-func (b *broker) fetchTopicOffsets(metadata *franz.MetadataResponseV0) (topicOffsets, error) {
-	input := makeListOffsetRequestV1(b.nodeID, metadata)
+// fetchTopicOffsets => offset -1 for newest, -2 for oldest
+func (b *broker) fetchTopicOffsets(metadata *franz.MetadataResponseV0, offset int64) (topicOffsets, error) {
+	input := makeListOffsetRequestV1(b.nodeID, metadata, offset)
 
 	b.debug("fetching topic offsets for broker, %v", b.nodeID)
 	resp, err := b.conn.ListOffsetsV1(input)
@@ -89,14 +90,14 @@ func newBroker(nodeID int32, conn *franz.Conn, debug io.Writer) *broker {
 
 type brokerArray []*broker
 
-func (b brokerArray) fetchTopicOffsets(ctx context.Context, metadata *franz.MetadataResponseV0) (topicOffsets, error) {
+func (b brokerArray) fetchTopicOffsets(ctx context.Context, metadata *franz.MetadataResponseV0, offset int64) (topicOffsets, error) {
 	results := make(chan topicOffsets, len(b))
 
 	group := &errgroup.Group{}
 	for _, item := range b {
 		broker := item
 		group.Go(func() error {
-			offsets, err := broker.fetchTopicOffsets(metadata)
+			offsets, err := broker.fetchTopicOffsets(metadata, offset)
 			if err == nil {
 				results <- offsets
 			}
