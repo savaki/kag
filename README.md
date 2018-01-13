@@ -1,3 +1,5 @@
+[![GoDoc](https://godoc.org/github.com/savaki/kag?status.svg)](https://godoc.org/github.com/savaki/kag)
+
 # kag
 
 kafka lag meter written in pure go with no external dependencies (except Kafka)
