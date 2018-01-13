@@ -2,7 +2,6 @@ package kag
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -11,6 +10,23 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/savaki/franz"
+)
+
+type Observer interface {
+	Observe(groupID, topic string, partition int32, lag int64)
+}
+
+type ObserverFunc func(groupID, topic string, partition int32, lag int64)
+
+func (fn ObserverFunc) Observe(groupID, topic string, partition int32, lag int64) {
+	fn(groupID, topic, partition, lag)
+}
+
+var (
+	Stdout Observer = ObserverFunc(func(groupID, topic string, partition int32, lag int64) {
+		fmt.Printf("%v/%v/%v => %v\n", groupID, topic, partition, lag)
+	})
+	Nop Observer = ObserverFunc(func(groupID, topic string, partition int32, lag int64) {})
 )
 
 type Monitor struct {
@@ -35,29 +51,6 @@ func (m *Monitor) connectAny(ctx context.Context) (*franz.Conn, error) {
 
 type ScanOut struct {
 	Offsets map[string]map[int32]int64
-}
-
-func (m *Monitor) fetchOffsets(conn *franz.Conn, nodeID int32, metadata *franz.MetadataResponseV0) (map[string]map[int32]int64, error) {
-	input := makeListOffsetRequestV1(nodeID, metadata)
-	resp, err := conn.ListOffsetsV1(input)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unable to list offsets for broker, %v", conn.RemoteAddr())
-	}
-
-	offsets := map[string]map[int32]int64{}
-	for _, t := range resp.Responses {
-		offsetsByPartition, ok := offsets[t.Topic]
-		if !ok {
-			offsetsByPartition = map[int32]int64{}
-			offsets[t.Topic] = offsetsByPartition
-		}
-
-		for _, p := range t.PartitionResponses {
-			offsetsByPartition[p.Partition] = p.Offset
-		}
-	}
-
-	return offsets, nil
 }
 
 func (m *Monitor) monitor(ctx context.Context) error {
@@ -87,6 +80,9 @@ func (m *Monitor) monitor(ctx context.Context) error {
 	brokerList := metadata.Brokers
 	sort.Slice(brokerList, func(i, j int) bool { return brokerList[i].NodeID < brokerList[j].NodeID })
 
+	ticker := time.NewTicker(m.config.Interval)
+	defer ticker.Stop()
+
 	for {
 		metadata, err := conn.MetadataV0(franz.MetadataRequestV0{})
 		if err != nil {
@@ -109,15 +105,32 @@ func (m *Monitor) monitor(ctx context.Context) error {
 			return err
 		}
 
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		encoder.Encode(groupOffsets)
-		encoder.Encode(topicOffsets)
+		for groupID, topics := range groupOffsets {
+			for topic, partitions := range topics {
+				offsetsByPartition, ok := topicOffsets[topic]
+				if !ok {
+					continue
+				}
+
+				for partition, offset := range partitions {
+					v, ok := offsetsByPartition[partition]
+					if !ok {
+						continue
+					}
+
+					lag := v - offset
+					if lag < 0 {
+						lag = 0
+					}
+					m.config.Observer.Observe(groupID, topic, partition, lag)
+				}
+			}
+		}
 
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(time.Minute):
+		case <-ticker.C:
 		}
 	}
 
@@ -148,7 +161,13 @@ func (m *Monitor) Close() error {
 
 func NewContext(ctx context.Context, config Config) *Monitor {
 	if len(config.Brokers) == 0 {
-		config.Brokers = []string{"localhost:9092"}
+		panic(errors.Errorf("Brokers not set"))
+	}
+	if config.Observer == nil {
+		config.Observer = Nop
+	}
+	if config.Interval == 0 {
+		config.Interval = DefaultInterval
 	}
 
 	dialer := &franz.Dialer{

@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+const (
+	DefaultInterval = time.Minute
+)
+
 // The Resolver interface is used as an abstraction to provide service discovery
 // of the hosts of a kafka cluster.
 type Resolver interface {
@@ -23,6 +27,12 @@ type Config struct {
 
 	// Unique identifier for client connections established by this Config.
 	ClientID string
+
+	// Observer publishes lag
+	Observer Observer
+
+	// Interval specifies the rate the kafka brokers should be polled
+	Interval time.Duration
 
 	// Timeout is the maximum amount of time a dial will wait for a connect to
 	// complete. If Deadline is also set, it may fail earlier.
