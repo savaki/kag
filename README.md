@@ -2,6 +2,18 @@
 
 kafka lag meter written in pure go with no external dependencies (except Kafka)
 
+### Motivations
+
+We use Kafka extensively, but unlike many organizations, our Kafka clustered are managed
+by a hosting provider.  Consequently, when we looked for kafka monitoring tools, we found
+a derth of options:
+
+* **Burrow** looks like a fantastic tool, but appears to require a connection to zookeeper 
+which our hosting provider doesn't expose
+* **Datadog** provides an agent to extract stats from Kafka via JMX.  Again, with a hosted 
+Kafka, we don't have JMX access.  Also, it appears that the agent should be colocated with the
+Kafka instances. 
+
 ### Installation
 
 ```bash
