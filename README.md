@@ -2,6 +2,12 @@
 
 kafka lag meter
 
+### Installation
+
+```bash
+go get github.com/savaki/kag/cmd/kag
+```
+
 ### Usage
 
 ```bash
