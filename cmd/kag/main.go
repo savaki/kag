@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +24,7 @@ var (
 		Observer string
 		Interval time.Duration
 		Debug    bool
+		ECS      bool
 		Datadog  struct {
 			Addr      string
 			Namespace string
@@ -101,6 +105,11 @@ func main() {
 			Usage:       "display additional debugging info",
 			Destination: &opts.Debug,
 		},
+		cli.BoolFlag{
+			Name:        "ecs",
+			Usage:       "use the address of the ecs host",
+			Destination: &opts.ECS,
+		},
 	}
 	app.Run(os.Args)
 }
@@ -112,6 +121,30 @@ func check(err error) {
 	}
 }
 
+func ecsHost() (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	u := "http://169.254.169.254/latest/meta-data/local-ipv4"
+	req, _ := http.NewRequest(http.MethodGet, u, nil)
+	req = req.WithContext(ctx)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to connect to instance metadata host, %v: %v\n", u, err)
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to read host info from instance metadata: %v\n", err)
+		return "", false
+	}
+
+	return strings.TrimSpace(string(data)), true
+}
+
 func newObserver() (kag.Observer, error) {
 	observer := kag.Nop
 
@@ -120,8 +153,14 @@ func newObserver() (kag.Observer, error) {
 		observer = kag.Stdout
 
 	case "datadog":
+		addr := opts.Datadog.Addr
+		if opts.ECS {
+			if host, ok := ecsHost(); ok {
+				addr = fmt.Sprintf("%v:8125", host)
+			}
+		}
 		tags := strings.Split(opts.Datadog.Tags, ",")
-		return datadog.NewObserver(opts.Datadog.Addr, opts.Datadog.Namespace, tags...)
+		return datadog.NewObserver(addr, opts.Datadog.Namespace, tags...)
 
 	default:
 		return nil, fmt.Errorf("unknown observer, %v.  valid observers stdout, datadog", opts.Observer)
