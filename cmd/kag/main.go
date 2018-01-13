@@ -40,6 +40,7 @@ var (
 
 func main() {
 	app := cli.NewApp()
+	app.Name = "kag"
 	app.Action = run
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
