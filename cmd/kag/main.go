@@ -104,11 +104,13 @@ func main() {
 		cli.BoolFlag{
 			Name:        "debug",
 			Usage:       "display additional debugging info",
+			EnvVar:      "KAG_DEBUG",
 			Destination: &opts.Debug,
 		},
 		cli.BoolFlag{
 			Name:        "ecs",
 			Usage:       "use the address of the ecs host",
+			EnvVar:      "KAG_ECS",
 			Destination: &opts.ECS,
 		},
 	}

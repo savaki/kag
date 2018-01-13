@@ -27,8 +27,8 @@ GLOBAL OPTIONS:
    --tls-cert value           tls certificate [$KAG_TLS_CERT]
    --tls-key value            tls private key [$KAG_TLS_KEY]
    --tls-ca value             tls ca certificate [$KAG_TLS_CA]
-   --debug                    display additional debugging info
-   --ecs                      use the address of the ecs host
+   --debug                    display additional debugging info [$KAG_DEBUG]
+   --ecs                      use the address of the ecs host [$KAG_ECS]
    --help, -h                 show help
    --version, -v              print the version
 ```
@@ -40,3 +40,21 @@ GLOBAL OPTIONS:
 ```bash
 kag --observer datadog 
 ```
+
+### Configuration
+
+kag can be configured entirely from environment variables
+
+| Name | Default Value | Description |
+| :--- | :--- | :--- |
+| KAG_BROKERS | localhost:9092 | comma separated list of kafka brokers |
+| KAG_INTERVAL | 1m | polling interval. examples 5m, 90s, 1h  |
+| KAG_OBSERVER | stdout | indicates where metrics should be published; stdout, datadog |
+| KAG_DATADOG_ADDR | 127.0.0.1:8125 | statsd host and port when using datadog observer |
+| KAG_DATADOG_NAMESPACE | | optional datadog namespace |
+| KAG_DATADOG_TAGS | | comma separated list of datadog tags |
+| KAG_DEBUG | | true to include additional debug data |
+| KAG_ECS | | true to use the AWS ECS host as the base address for the observer e.g. for datadog {host}:8125 |
+| KAG_TLS_CERT | | optional tls cert pem |
+| KAG_TLS_KEY | | optional tls private key pem for cert |
+| KAG_TLS_CA | | optional tls ca certification |
